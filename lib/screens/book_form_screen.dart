@@ -1,11 +1,25 @@
 import 'package:flutter/material.dart';
 
+import '../models/author.dart';
 import '../models/book.dart';
 
+class BookFormResult {
+  const BookFormResult({required this.book, this.author});
+
+  final Book book;
+
+  final Author? author;
+}
+
 class BookFormScreen extends StatefulWidget {
-  const BookFormScreen({super.key, this.book});
+  const BookFormScreen({
+    super.key,
+    required this.authors,
+    this.book,
+  });
 
   final Book? book;
+  final List<Author> authors;
 
   @override
   State<BookFormScreen> createState() => _BookFormScreenState();
@@ -14,10 +28,14 @@ class BookFormScreen extends StatefulWidget {
 class _BookFormScreenState extends State<BookFormScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _titleController;
-  late final TextEditingController _authorController;
+  late final TextEditingController _isbnController;
   late final TextEditingController _yearController;
   late final TextEditingController _notesController;
-  int? _rating;
+  late final TextEditingController _newAuthorController;
+  String? _selectedAuthorId;
+  bool _creatingNewAuthor = false;
+
+  static const _newAuthorOption = '__new_author__';
 
   bool get _isEditing => widget.book != null;
 
@@ -26,19 +44,28 @@ class _BookFormScreenState extends State<BookFormScreen> {
     super.initState();
     final book = widget.book;
     _titleController = TextEditingController(text: book?.title ?? '');
-    _authorController = TextEditingController(text: book?.author ?? '');
+    _isbnController = TextEditingController(text: book?.isbn ?? '');
     _yearController =
         TextEditingController(text: book?.year?.toString() ?? '');
     _notesController = TextEditingController(text: book?.notes ?? '');
-    _rating = book?.rating;
+    _newAuthorController = TextEditingController();
+    _selectedAuthorId = book?.authorId;
+    if (_selectedAuthorId != null &&
+        !widget.authors.any((a) => a.id == _selectedAuthorId)) {
+      _creatingNewAuthor = true;
+    }
+    if (widget.authors.isEmpty) {
+      _creatingNewAuthor = true;
+    }
   }
 
   @override
   void dispose() {
     _titleController.dispose();
-    _authorController.dispose();
+    _isbnController.dispose();
     _yearController.dispose();
     _notesController.dispose();
+    _newAuthorController.dispose();
     super.dispose();
   }
 
@@ -47,15 +74,29 @@ class _BookFormScreenState extends State<BookFormScreen> {
       return;
     }
     final yearText = _yearController.text.trim();
+    Author? newAuthor;
+    String authorId;
+    if (_creatingNewAuthor) {
+      newAuthor = Author(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: _newAuthorController.text.trim(),
+      );
+      authorId = newAuthor.id;
+    } else {
+      authorId = _selectedAuthorId!;
+    }
     Navigator.of(context).pop(
-      Book(
-        id: widget.book?.id ??
-            DateTime.now().microsecondsSinceEpoch.toString(),
-        title: _titleController.text.trim(),
-        author: _authorController.text.trim(),
-        year: yearText.isEmpty ? null : int.parse(yearText),
-        rating: _rating,
-        notes: _notesController.text.trim(),
+      BookFormResult(
+        book: Book(
+          id: widget.book?.id ??
+              DateTime.now().microsecondsSinceEpoch.toString(),
+          title: _titleController.text.trim(),
+          authorId: authorId,
+          isbn: _isbnController.text.trim(),
+          year: yearText.isEmpty ? null : int.parse(yearText),
+          notes: _notesController.text.trim(),
+        ),
+        author: newAuthor,
       ),
     );
   }
@@ -87,19 +128,89 @@ class _BookFormScreenState extends State<BookFormScreen> {
               },
             ),
             const SizedBox(height: 16),
-            TextFormField(
-              controller: _authorController,
-              decoration: const InputDecoration(
-                labelText: 'Author',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.person),
+            if (_creatingNewAuthor)
+              TextFormField(
+                controller: _newAuthorController,
+                decoration: InputDecoration(
+                  labelText: 'Author name',
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.person),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.cancel),
+                    onPressed: widget.authors.isEmpty
+                        ? null
+                        : () => setState(() {
+                              _creatingNewAuthor = false;
+                              _selectedAuthorId = widget.authors.first.id;
+                            }),
+                  ),
+                ),
+                textCapitalization: TextCapitalization.words,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter an author name';
+                  }
+                  return null;
+                },
+              )
+            else
+              DropdownButtonFormField<String>(
+                initialValue: _selectedAuthorId,
+                decoration: const InputDecoration(
+                  labelText: 'Author',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.person),
+                ),
+                items: [
+                  for (final author in widget.authors)
+                    DropdownMenuItem(
+                      value: author.id,
+                      child: Text(author.name),
+                    ),
+                  DropdownMenuItem(
+                    value: _newAuthorOption,
+                    child: const Row(
+                      children: [
+                        Icon(Icons.add, size: 18),
+                        SizedBox(width: 8),
+                        Text('New author...'),
+                      ],
+                    ),
+                  ),
+                ],
+                validator: (value) {
+                  if (value == null) {
+                    return 'Please select an author';
+                  }
+                  return null;
+                },
+                onChanged: (value) {
+                  if (value == _newAuthorOption) {
+                    setState(() => _creatingNewAuthor = true);
+                  } else {
+                    setState(() => _selectedAuthorId = value);
+                  }
+                },
               ),
-              textCapitalization: TextCapitalization.words,
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _isbnController,
+              decoration: const InputDecoration(
+                labelText: 'ISBN (optional)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.barcode_reader),
+              ),
+              keyboardType: TextInputType.text,
               validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Please enter an author';
+                final text = value?.trim() ?? '';
+                if (text.isEmpty) {
+                  return null;
                 }
-                return null;
+                final cleaned = text.replaceAll('-', '');
+                if (cleaned.length == 10 || cleaned.length == 13) {
+                  return null;
+                }
+                return 'ISBN must be 10 or 13 characters';
               },
             ),
             const SizedBox(height: 16),
@@ -124,34 +235,6 @@ class _BookFormScreenState extends State<BookFormScreen> {
                 }
                 return null;
               },
-            ),
-            const SizedBox(height: 24),
-            Text('Rating', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(5, (index) {
-                final starValue = index + 1;
-                return IconButton(
-                  icon: Icon(
-                    _rating != null && starValue <= _rating!
-                        ? Icons.star
-                        : Icons.star_border,
-                    color: Colors.amber,
-                  ),
-                  onPressed: () => setState(() {
-                    _rating = starValue;
-                  }),
-                );
-              }),
-            ),
-            TextButton(
-              onPressed: _rating == null
-                  ? null
-                  : () => setState(() {
-                        _rating = null;
-                      }),
-              child: const Text('Clear rating'),
             ),
             const SizedBox(height: 16),
             TextFormField(

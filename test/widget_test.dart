@@ -17,38 +17,60 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test('BookRepository saves and loads books', () async {
+  test('BookRepository saves and loads books with authors', () async {
     final prefs = await SharedPreferences.getInstance();
     final repository = BookRepository(prefs);
     expect(repository.loadBooks(), isEmpty);
+    expect(repository.loadAuthors(), isEmpty);
 
+    final author = await repository.addAuthor('J. R. R. Tolkien');
     final book = Book(
       id: '1',
       title: 'The Hobbit',
-      author: 'J. R. R. Tolkien',
+      authorId: author.id,
+      isbn: '978-0261102217',
       year: 1937,
-      rating: 5,
       notes: 'Great adventure.',
     );
     await repository.saveBooks([book]);
 
-    final loaded = repository.loadBooks();
+    final reloaded = BookRepository(await SharedPreferences.getInstance());
+    final loaded = reloaded.loadBooks();
     expect(loaded, hasLength(1));
     expect(loaded.first.title, 'The Hobbit');
-    expect(loaded.first.author, 'J. R. R. Tolkien');
+    expect(loaded.first.authorId, author.id);
+    expect(loaded.first.isbn, '978-0261102217');
     expect(loaded.first.year, 1937);
-    expect(loaded.first.rating, 5);
     expect(loaded.first.notes, 'Great adventure.');
+    expect(reloaded.loadAuthors().first.name, 'J. R. R. Tolkien');
   });
 
-  test('BookRepository persists across instances', () async {
+  test('addAuthor reuses an existing author with the same name', () async {
     final prefs = await SharedPreferences.getInstance();
-    await BookRepository(prefs).saveBooks([
-      const Book(id: '1', title: 'Dune', author: 'Frank Herbert'),
-    ]);
+    final repository = BookRepository(prefs);
+    final first = await repository.addAuthor('Frank Herbert');
+    final second = await repository.addAuthor('Frank Herbert');
+    expect(second.id, first.id);
+    expect(repository.loadAuthors(), hasLength(1));
+  });
 
-    final repository = BookRepository(await SharedPreferences.getInstance());
-    expect(repository.loadBooks().first.title, 'Dune');
+  test('migrate converts legacy author strings to author records',
+      () async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'books',
+      '[{"id":"b1","title":"Dune","author":"Frank Herbert",'
+      '"rating":5,"notes":""}]',
+    );
+
+    final repository = BookRepository(prefs);
+    await repository.migrate();
+
+    final books = repository.loadBooks();
+    final authors = repository.loadAuthors();
+    expect(authors, hasLength(1));
+    expect(authors.first.name, 'Frank Herbert');
+    expect(books.first.authorId, authors.first.id);
   });
 
   testWidgets('empty state is shown when no books exist', (tester) async {
@@ -59,7 +81,8 @@ void main() {
     expect(find.text('Add Book'), findsOneWidget);
   });
 
-  testWidgets('user can add a book via the form', (tester) async {
+  testWidgets('user can add a book with a new author via the form',
+      (tester) async {
     _useTallSurface(tester);
     await tester.pumpWidget(const BookApp());
     await tester.pumpAndSettle();
@@ -72,8 +95,12 @@ void main() {
       'The Pragmatic Programmer',
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Author'),
+      find.widgetWithText(TextFormField, 'Author name'),
       'Andrew Hunt',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'ISBN (optional)'),
+      '9780201616224',
     );
     await tester.tap(find.byIcon(Icons.save));
     await tester.pumpAndSettle();
@@ -82,13 +109,49 @@ void main() {
     expect(find.text('Andrew Hunt'), findsOneWidget);
 
     final prefs = await SharedPreferences.getInstance();
-    final books = BookRepository(prefs).loadBooks();
+    final repository = BookRepository(prefs);
+    final books = repository.loadBooks();
+    final authors = repository.loadAuthors();
     expect(books, hasLength(1));
-    expect(books.first.title, 'The Pragmatic Programmer');
-    expect(books.first.author, 'Andrew Hunt');
+    expect(authors, hasLength(1));
+    expect(authors.first.name, 'Andrew Hunt');
+    expect(books.first.authorId, authors.first.id);
+    expect(books.first.isbn, '9780201616224');
   });
 
-  testWidgets('form validation blocks empty fields', (tester) async {
+  testWidgets('user can pick an existing author from the dropdown',
+      (tester) async {
+    _useTallSurface(tester);
+    final prefs = await SharedPreferences.getInstance();
+    final repository = BookRepository(prefs);
+    final author = await repository.addAuthor('Frank Herbert');
+
+    await tester.pumpWidget(const BookApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add Book'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Title'),
+      'Dune',
+    );
+    await tester.tap(find.text('Author'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Frank Herbert').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.save));
+    await tester.pumpAndSettle();
+
+    final books = BookRepository(await SharedPreferences.getInstance())
+        .loadBooks();
+    expect(books, hasLength(1));
+    expect(books.first.authorId, author.id);
+    expect(find.text('Dune'), findsOneWidget);
+  });
+
+  testWidgets('form validation blocks empty and invalid fields',
+      (tester) async {
     _useTallSurface(tester);
     await tester.pumpWidget(const BookApp());
     await tester.pumpAndSettle();
@@ -96,18 +159,30 @@ void main() {
     await tester.tap(find.text('Add Book'));
     await tester.pumpAndSettle();
 
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'ISBN (optional)'),
+      '123',
+    );
     await tester.tap(find.byIcon(Icons.save));
     await tester.pumpAndSettle();
 
     expect(find.text('Please enter a title'), findsOneWidget);
-    expect(find.text('Please enter an author'), findsOneWidget);
+    expect(find.text('Please enter an author name'), findsOneWidget);
+    expect(find.text('ISBN must be 10 or 13 characters'), findsOneWidget);
   });
 
   testWidgets('user can open details and edit a book', (tester) async {
     _useTallSurface(tester);
     final prefs = await SharedPreferences.getInstance();
-    await BookRepository(prefs).saveBooks([
-      const Book(id: '1', title: 'Dune', author: 'Frank Herbert'),
+    final repository = BookRepository(prefs);
+    final author = await repository.addAuthor('Frank Herbert');
+    await repository.saveBooks([
+      Book(
+        id: '1',
+        title: 'Dune',
+        authorId: author.id,
+        isbn: '9780441013593',
+      ),
     ]);
 
     await tester.pumpWidget(const BookApp());
@@ -116,6 +191,7 @@ void main() {
     await tester.tap(find.text('Dune'));
     await tester.pumpAndSettle();
     expect(find.text('by Frank Herbert'), findsOneWidget);
+    expect(find.text('9780441013593'), findsOneWidget);
 
     await tester.tap(find.text('Edit'));
     await tester.pumpAndSettle();
@@ -132,6 +208,6 @@ void main() {
         .loadBooks();
     expect(books, hasLength(1));
     expect(books.first.title, 'Dune Messiah');
-    expect(books.first.author, 'Frank Herbert');
+    expect(books.first.isbn, '9780441013593');
   });
 }
