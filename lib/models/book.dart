@@ -5,34 +5,33 @@ class Book {
   const Book({
     required this.id,
     required this.title,
-    required this.author,
+    required this.authorId,
+    this.isbn = '',
     this.year,
-    this.rating,
     this.notes = '',
   });
 
   final String id;
   final String title;
-  final String author;
+  final String authorId;
+  final String isbn;
   final int? year;
-  final int? rating;
   final String notes;
 
   Book copyWith({
     String? title,
-    String? author,
+    String? authorId,
+    String? isbn,
     int? year,
     bool clearYear = false,
-    int? rating,
-    bool clearRating = false,
     String? notes,
   }) {
     return Book(
       id: id,
       title: title ?? this.title,
-      author: author ?? this.author,
+      authorId: authorId ?? this.authorId,
+      isbn: isbn ?? this.isbn,
       year: clearYear ? null : (year ?? this.year),
-      rating: clearRating ? null : (rating ?? this.rating),
       notes: notes ?? this.notes,
     );
   }
@@ -41,9 +40,9 @@ class Book {
     return Book(
       id: json['id'] as String,
       title: json['title'] as String,
-      author: json['author'] as String,
+      authorId: (json['authorId'] as String?) ?? '',
+      isbn: (json['isbn'] as String?) ?? '',
       year: json['year'] as int?,
-      rating: json['rating'] as int?,
       notes: (json['notes'] as String?) ?? '',
     );
   }
@@ -52,9 +51,9 @@ class Book {
     return {
       'id': id,
       'title': title,
-      'author': author,
+      'authorId': authorId,
+      'isbn': isbn,
       'year': year,
-      'rating': rating,
       'notes': notes,
     };
   }

@@ -16,37 +16,59 @@ class BookDetailScreen extends StatefulWidget {
 
 class _BookDetailScreenState extends State<BookDetailScreen> {
   Book? _book;
+  String _authorName = 'Unknown author';
 
   @override
   void initState() {
     super.initState();
-    SharedPreferences.getInstance().then((prefs) {
-      final repository = BookRepository(prefs);
-      setState(() {
-        _book = repository.loadBooks().firstWhere(
-              (book) => book.id == widget.bookId,
-              orElse: () => throw StateError('Book not found'),
-            );
-      });
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final repository = BookRepository(prefs);
+    final books = repository.loadBooks();
+    final book = books.where((b) => b.id == widget.bookId).firstOrNull;
+    if (book == null) {
+      if (mounted) Navigator.of(context).pop(false);
+      return;
+    }
+    final author = repository
+        .loadAuthors()
+        .where((a) => a.id == book.authorId)
+        .firstOrNull;
+    setState(() {
+      _book = book;
+      _authorName = author?.name ?? 'Unknown author';
     });
   }
 
   Future<void> _edit() async {
     final book = _book;
     if (book == null) return;
-    final result = await Navigator.of(context).push<Book>(
-      MaterialPageRoute(builder: (context) => BookFormScreen(book: book)),
-    );
-    if (result == null) return;
     final prefs = await SharedPreferences.getInstance();
     final repository = BookRepository(prefs);
+    if (!mounted) return;
+    final result = await Navigator.of(context).push<BookFormResult>(
+      MaterialPageRoute(
+        builder: (context) => BookFormScreen(
+          book: book,
+          authors: repository.loadAuthors(),
+        ),
+      ),
+    );
+    if (result == null) return;
+    if (result.author != null) {
+      await repository.saveAuthor(result.author!);
+    }
     final books = repository.loadBooks();
     await repository.saveBooks([
       for (final existing in books)
-        existing.id == result.id ? result : existing,
+        existing.id == result.book.id ? result.book : existing,
     ]);
-    setState(() => _book = result);
-    if (mounted) Navigator.of(context).pop(true);
+    if (mounted) {
+      Navigator.of(context).pop(true);
+    }
   }
 
   Future<void> _delete() async {
@@ -94,18 +116,15 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
         children: [
           Text(book.title, style: theme.textTheme.headlineSmall),
           const SizedBox(height: 4),
-          Text('by ${book.author}', style: theme.textTheme.titleMedium),
+          Text('by $_authorName', style: theme.textTheme.titleMedium),
           const SizedBox(height: 16),
-          if (book.rating != null)
-            Row(
-              children: List.generate(5, (i) {
-                return Icon(
-                  i < book.rating! ? Icons.star : Icons.star_border,
-                  color: Colors.amber,
-                );
-              }),
+          if (book.isbn.isNotEmpty)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.barcode_reader),
+              title: Text(book.isbn),
+              subtitle: const Text('ISBN'),
             ),
-          if (book.rating != null) const SizedBox(height: 16),
           if (book.year != null)
             ListTile(
               contentPadding: EdgeInsets.zero,
