@@ -51,10 +51,8 @@ class _BookListScreenState extends State<BookListScreen> {
   @override
   void initState() {
     super.initState();
-    SharedPreferences.getInstance().then((prefs) async {
-      final repository = BookRepository(prefs);
-      await repository.migrate();
-      _repository = repository;
+    SharedPreferences.getInstance().then((prefs) {
+      _repository = BookRepository(prefs);
       _reload();
     });
   }

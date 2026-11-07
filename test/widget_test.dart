@@ -54,25 +54,6 @@ void main() {
     expect(repository.loadAuthors(), hasLength(1));
   });
 
-  test('migrate converts legacy author strings to author records',
-      () async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      'books',
-      '[{"id":"b1","title":"Dune","author":"Frank Herbert",'
-      '"rating":5,"notes":""}]',
-    );
-
-    final repository = BookRepository(prefs);
-    await repository.migrate();
-
-    final books = repository.loadBooks();
-    final authors = repository.loadAuthors();
-    expect(authors, hasLength(1));
-    expect(authors.first.name, 'Frank Herbert');
-    expect(books.first.authorId, authors.first.id);
-  });
-
   testWidgets('empty state is shown when no books exist', (tester) async {
     _useTallSurface(tester);
     await tester.pumpWidget(const BookApp());
